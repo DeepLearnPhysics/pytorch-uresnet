@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch as torch
 import math
 import torch.utils.model_zoo as model_zoo
 
@@ -16,28 +17,11 @@ import torch.utils.model_zoo as model_zoo
 #
 ###########################################################
 
-__all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
-           'resnet152']
-
-
-model_urls = {
-    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
-    'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
-    'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-    'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
-}
-
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,padding=1, bias=False)
                      
-
-def deconv3x3(in_planes, out_planes stride=1):
-    """3x3 conv-transpose"""
-    
-
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -72,7 +56,6 @@ class BasicBlock(nn.Module):
 
 
 class Bottleneck(nn.Module):
-    expansion = 4
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
@@ -153,11 +136,10 @@ class UResNet(nn.Module):
         self.enc_layer3 = self._make_encoding_layer( self.inplanes*4, self.inplanes*8,  stride=2)
         self.enc_layer4 = self._make_encoding_layer( self.inplanes*8, self.inplanes*16, stride=2)
 
-        self.dec_layer4 = self._make_decoding_layer( self.inplanes*16, self.inplanes*8, stride=2 )
-        self.dec_layer3 = self._make_decoding_layer( self.inplanes*8,  self.inplanes*4, stride=2 )
-        self.dec_layer2 = self._make_decoding_layer( self.inplanes*4,  self.inplanes*2, stride=2 )
-        self.dec_layer1 = self._make_decoding_layer( self.inplanes*2,  self.inplanes*1, stride=2 )
-
+        self.dec_layer4 = self._make_decoding_layer( self.inplanes*16,  self.inplanes*8,   stride=2 )
+        self.dec_layer3 = self._make_decoding_layer( self.inplanes*8*2, self.inplanes*4*2, stride=2 )
+        self.dec_layer2 = self._make_decoding_layer( self.inplanes*4*2, self.inplanes*2*2, stride=2 )
+        self.dec_layer1 = self._make_decoding_layer( self.inplanes*2*2, self.inplanes*1*2, stride=2 )
 
         # final conv layers
         self.conv10 = nn.Conv2d(self.inplanes, 64, kernel_size=7, stride=1, padding=3, bias=True) # initial conv layer
@@ -189,14 +171,23 @@ class UResNet(nn.Module):
         x = self.bn1(x)
         x = self.relu1(x)
 
-        x = self.enc_layer1(x)
-        x = self.enc_layer2(x)
-        x = self.enc_layer3(x)
-        x = self.enc_layer4(x)
+        x1 = self.enc_layer1(x)
+        x2 = self.enc_layer2(x1)
+        x3 = self.enc_layer3(x2)
+        x = self.enc_layer4(x3)
 
         x = self.dec_layer1(x)
+
+        # add skip connection
+        x = torch.cat( [x,x3], 3 ) 
         x = self.dec_layer2(x)
+
+        # add skip connection        
+        x = torch.cat( [x,x2], 3 )
         x = self.dec_layer3(x)
+
+        # add skip connection
+        x = torch.cat( [x,x1], 3 )        
         x = self.dec_layer4(x)
 
         x = self.conv10(x)
