@@ -57,7 +57,7 @@ class BasicBlock(nn.Module):
 
 class Bottleneck(nn.Module):
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, inplanes, planes, stride=1 ):
         super(Bottleneck, self).__init__()
 
         # residual path
@@ -70,7 +70,6 @@ class Bottleneck(nn.Module):
         self.conv3 = nn.Conv2d(planes, planes, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
         self.stride = stride
 
         # if stride >1, then we need to subsamble the input
@@ -83,35 +82,32 @@ class Bottleneck(nn.Module):
     def forward(self, x):
 
         if self.shortcut is None:
-            residual = x
+            bypass = x
         else:
-            residual = self.shortcut(x)
+            bypass = self.shortcut(x)
 
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
+        residual = self.conv1(x)
+        residual = self.bn1(residual)
+        residual = self.relu(residual)
 
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
+        residual = self.conv2(residual)
+        residual = self.bn2(residual)
+        residual = self.relu(residual)
 
-        out = self.conv3(out)
-        out = self.bn3(out)
+        residual = self.conv3(residual)
+        residual = self.bn3(residual)
 
-        if self.downsample is not None:
-            residual = self.downsample(x)
-
-        out += residual
+        out = bypass+residual
         out = self.relu(out)
 
         return out
 
 
 class DoubleResNet(nn.Module):
-    def __init__(self,inplanes,planes,stride=1,downsample=None):
+    def __init__(self,inplanes,planes,stride=1):
         super(DoubleResNet,self).__init__()
-        self.res1 = BottleNeck(inplanes,planes,stride,downsample)
-        self.res2 = BottleNeck(  planes,planes,stride,downsample)
+        self.res1 = Bottleneck(inplanes,planes,stride)
+        self.res2 = Bottleneck(  planes,planes,     1)
 
     def forward(self, x):
         out = self.res1(x)
@@ -121,10 +117,12 @@ class DoubleResNet(nn.Module):
     
 class UResNet(nn.Module):
 
-    def __init__(self, layers, num_classes=3, input_channels=3, inplanes=16):
+    def __init__(self, num_classes=3, input_channels=3, inplanes=16, showsizes=False):
         self.inplanes =inplanes
         super(UResNet, self).__init__()
 
+        self._showsizes = showsizes # print size at each layer
+        
         # Encoder
 
         self.conv1 = nn.Conv2d(input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=True) # initial conv layer
@@ -137,9 +135,9 @@ class UResNet(nn.Module):
         self.enc_layer4 = self._make_encoding_layer( self.inplanes*8, self.inplanes*16, stride=2)
 
         self.dec_layer4 = self._make_decoding_layer( self.inplanes*16,  self.inplanes*8,   stride=2 )
-        self.dec_layer3 = self._make_decoding_layer( self.inplanes*8*2, self.inplanes*4*2, stride=2 )
-        self.dec_layer2 = self._make_decoding_layer( self.inplanes*4*2, self.inplanes*2*2, stride=2 )
-        self.dec_layer1 = self._make_decoding_layer( self.inplanes*2*2, self.inplanes*1*2, stride=2 )
+        self.dec_layer3 = self._make_decoding_layer( self.inplanes*8*2, self.inplanes*4, stride=2 )
+        self.dec_layer2 = self._make_decoding_layer( self.inplanes*4*2, self.inplanes*2, stride=2 )
+        self.dec_layer1 = self._make_decoding_layer( self.inplanes*2*2, self.inplanes*1, stride=2 )
 
         # final conv layers
         self.conv10 = nn.Conv2d(self.inplanes, 64, kernel_size=7, stride=1, padding=3, bias=True) # initial conv layer
@@ -147,10 +145,12 @@ class UResNet(nn.Module):
         self.relu10 = nn.ReLU(inplace=True)
         
         self.conv11 = nn.Conv2d(64, num_classes,   kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
+
+        self.softmax = nn.Softmax(dim=1)
         
         # initialization
         for m in self.modules():
-            if isinstance(m, nn.Conv2d):
+            if isinstance(m, nn.Conv2d) or isinstance(m,nn.ConvTranspose2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2. / n))
             elif isinstance(m, nn.BatchNorm2d):
@@ -159,7 +159,7 @@ class UResNet(nn.Module):
 
     def _make_encoding_layer(self, inplanes, planes, stride=2):
 
-        return DoubleResNet(inplanes,planes,stride=stride,downsample=None)
+        return DoubleResNet(inplanes,planes,stride=stride)
 
     def _make_decoding_layer(self, inplanes, planes, stride=2):
 
@@ -169,32 +169,61 @@ class UResNet(nn.Module):
 
         x = self.conv1(x)
         x = self.bn1(x)
-        x = self.relu1(x)
+        x0 = self.relu1(x)
+        if self._showsizes:
+            print "after conv1, x0: ",x0.size()
 
-        x1 = self.enc_layer1(x)
+        x1 = self.enc_layer1(x0)
         x2 = self.enc_layer2(x1)
         x3 = self.enc_layer3(x2)
-        x = self.enc_layer4(x3)
-
-        x = self.dec_layer1(x)
+        x4 = self.enc_layer4(x3)
+        if self._showsizes:
+            print "after encoding: "
+            print "  x1: ",x1.size()
+            print "  x2: ",x2.size()
+            print "  x3: ",x3.size()
+            print "  x4: ",x4.size()
+        
+        x = self.dec_layer4(x4,output_size=x3.size())
+        if self._showsizes:
+            print "after decoding:"
+            print "  dec4: ",x.size()
 
         # add skip connection
-        x = torch.cat( [x,x3], 3 ) 
-        x = self.dec_layer2(x)
+        x = torch.cat( [x,x3], 1 )
+        if self._showsizes:
+            print "  dec4+x3: ",x.size()
+        x = self.dec_layer3(x,output_size=x2.size())
+        if self._showsizes:
+            print "  dec3: ",x.size()
 
         # add skip connection        
-        x = torch.cat( [x,x2], 3 )
-        x = self.dec_layer3(x)
+        x = torch.cat( [x,x2], 1 )
+        if self._showsizes:
+            print "  dec3+x2: ",x.size()
+            
+        x = self.dec_layer2(x,output_size=x1.size())
+        if self._showsizes:
+            print "  dec2: ",x.size()
 
         # add skip connection
-        x = torch.cat( [x,x1], 3 )        
-        x = self.dec_layer4(x)
+        x = torch.cat( [x,x1], 1 )
+        if self._showsizes:
+            print "  dec2+x1: ",x.size()
+            
+        x = self.dec_layer1(x,output_size=x0.size())
+        if self._showsizes:
+            print "  dec1: ",x.size()
 
         x = self.conv10(x)
         x = self.bn10(x)
         x = self.relu10(x)
 
         x = self.conv11(x)
+
+        x = self.softmax(x)
+        if self._showsizes:
+            print "  softmax: ",x.size()
         
         return x
 
