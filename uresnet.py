@@ -138,7 +138,7 @@ class UResNet(nn.Module):
         self.dec_layer3 = self._make_decoding_layer( self.inplanes*8*2, self.inplanes*4, stride=2 )
         self.dec_layer2 = self._make_decoding_layer( self.inplanes*4*2, self.inplanes*2, stride=2 )
         self.dec_layer1 = self._make_decoding_layer( self.inplanes*2*2, self.inplanes*1, stride=2 )
-
+        
         # final conv layers
         self.conv10 = nn.Conv2d(self.inplanes, 64, kernel_size=7, stride=1, padding=3, bias=True) # initial conv layer
         self.bn10   = nn.BatchNorm2d(64)
@@ -146,7 +146,8 @@ class UResNet(nn.Module):
         
         self.conv11 = nn.Conv2d(64, num_classes,   kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
 
-        self.softmax = nn.Softmax(dim=1)
+        # we use log softmax in order to more easily pair it with 
+        self.softmax = nn.LogSoftmax(dim=1) # should return [b,c=3,h,w], normalized over, c dimension
         
         # initialization
         for m in self.modules():
@@ -167,6 +168,9 @@ class UResNet(nn.Module):
 
     def forward(self, x):
 
+        if self._showsizes:
+            print "input: ",x.size()," is_cuda=",x.is_cuda
+        
         x = self.conv1(x)
         x = self.bn1(x)
         x0 = self.relu1(x)
@@ -187,7 +191,7 @@ class UResNet(nn.Module):
         x = self.dec_layer4(x4,output_size=x3.size())
         if self._showsizes:
             print "after decoding:"
-            print "  dec4: ",x.size()
+            print "  dec4: ",x.size()," iscuda=",x.is_cuda
 
         # add skip connection
         x = torch.cat( [x,x3], 1 )
@@ -195,25 +199,25 @@ class UResNet(nn.Module):
             print "  dec4+x3: ",x.size()
         x = self.dec_layer3(x,output_size=x2.size())
         if self._showsizes:
-            print "  dec3: ",x.size()
+            print "  dec3: ",x.size()," iscuda=",x.is_cuda
 
         # add skip connection        
         x = torch.cat( [x,x2], 1 )
         if self._showsizes:
-            print "  dec3+x2: ",x.size()
+            print "  dec3+x2: ",x.size()," iscuda=",x.is_cuda
             
         x = self.dec_layer2(x,output_size=x1.size())
         if self._showsizes:
-            print "  dec2: ",x.size()
+            print "  dec2: ",x.size()," iscuda=",x.is_cuda
 
         # add skip connection
         x = torch.cat( [x,x1], 1 )
         if self._showsizes:
-            print "  dec2+x1: ",x.size()
+            print "  dec2+x1: ",x.size()," iscuda=",x.is_cuda
             
         x = self.dec_layer1(x,output_size=x0.size())
         if self._showsizes:
-            print "  dec1: ",x.size()
+            print "  dec1: ",x.size()," iscuda=",x.is_cuda
 
         x = self.conv10(x)
         x = self.bn10(x)

@@ -3,7 +3,8 @@
 home=$PWD
 source ~/setup_root6.sh
 
-cd ../larcv2
+#cd ../larcv2
+cd ../larcv1
 source configure.sh
 
 cd ../torchlarcvdataset
