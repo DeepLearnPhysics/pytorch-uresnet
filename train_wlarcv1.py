@@ -27,6 +27,9 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 import torch.nn.functional as F
 
+# tensorboardX
+from tensorboardX import SummaryWriter
+
 # Our model definition
 from uresnet import UResNet
 
@@ -162,11 +165,12 @@ torch.cuda.device( 1 )
 
 # global variables
 best_prec1 = 0.0  # best accuracy, use to decide when to save network weights
-
+writer = SummaryWriter()
 
 def main():
 
     global best_prec1
+    global writer
 
     # create model, mark it to run on the GPU
     if GPUMODE:
@@ -194,8 +198,8 @@ def main():
     weight_decay = 1.0e-3
 
     # training length
-    batchsize_train = 12
-    batchsize_valid = 8
+    batchsize_train = 1
+    batchsize_valid = 1
     start_epoch = 0
     epochs      = 1
     start_iter  = 0
@@ -350,7 +354,7 @@ def main():
 
             # evaluate on validation set
             try:
-                prec1 = validate(iovalid, batchsize_valid, model, criterion, nbatches_per_itervalid, validbatches_per_print)
+                prec1 = validate(iovalid, batchsize_valid, model, criterion, nbatches_per_itervalid, validbatches_per_print, ii)
             except Exception,e:
                 print "Error in validation routine!"            
                 print e.message
@@ -380,9 +384,13 @@ def main():
     print "FIN"
     print "PROFILER"
     print prof
+    writer.close()
 
 
 def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch, print_freq):
+
+    global writer
+    
     batch_time = AverageMeter() # total for batch
     data_time = AverageMeter()
     format_time = AverageMeter()
@@ -426,7 +434,12 @@ def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch,
         # measure accuracy and record loss
         prec1 = accuracy(output.data, labels_var.data)
         losses.update(loss.data[0], data.images.size(0))
-        top1.update(prec1[0], data.images.size(0))
+        top1.update(prec1[-1], data.images.size(0))
+        writer.add_scalar('data/train_loss', loss.data[0], epoch )        
+        writer.add_scalars('data/train_accuracy', {'background': prec1[0],
+                                                   'track': prec1[1],
+                                                   'shower': prec1[2],
+                                                   'total':prec1[3]}, epoch )
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -457,7 +470,10 @@ def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch,
     return losses.avg,top1.avg
 
 
-def validate(val_loader, batchsize, model, criterion, nbatches, print_freq):
+def validate(val_loader, batchsize, model, criterion, nbatches, print_freq, iiter):
+
+    global writer
+    
     batch_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
@@ -487,7 +503,12 @@ def validate(val_loader, batchsize, model, criterion, nbatches, print_freq):
         # measure accuracy and record loss
         prec1 = accuracy(output.data, labels_var.data)
         losses.update(loss.data[0], data.images.size(0))
-        top1.update(prec1[0], data.images.size(0))
+        top1.update(prec1[-1], data.images.size(0))
+        writer.add_scalar('data/valid_loss', loss.data[0], iiter )
+        writer.add_scalars('data/valid_accuracy', {'background': prec1[0],
+                                                   'track': prec1[1],
+                                                   'shower': prec1[2],
+                                                   'total':prec1[3]}, iiter )
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -547,17 +568,33 @@ def adjust_learning_rate(optimizer, epoch, lr):
 
 
 def accuracy(output, target):
-    """Computes the precision@k for the specified values of k"""
+    """Computes the accuracy. we want the aggregate accuracy along with accuracies for the different labels. easiest to just use numpy..."""
     maxk = 1
     batch_size = target.size(0)
     _, pred = output.topk(maxk, 1, True, False)
-    
+
     correct = pred.eq(target)
 
+    np_correct = correct.cpu().numpy()
+    np_target  = target.cpu().numpy()
+    print np_correct.shape
+    print np_target.shape
+
+    unique, count = np.unique( np_target, return_counts=True )
+    denom = dict(zip(unique,count))
+    print unique,count
+    
     res = []
-    correct_k = float(correct.sum())/float(correct.numel())*100.0
+    for c in range(output.size(1)):
+        if c not in unique:
+            res.append(0)
+            continue
+        cc = np.sum( np_correct[ np_target.reshape(np_correct.shape)==c ] )
+        res.append( float(cc)/float(denom[c])*100.0 )
+
+    # totals
+    res.append( 100.0*np.sum(np_correct)/np_correct.size )
         
-    res.append(correct_k)
     return res
 
 def dump_lr_schedule( startlr, numepochs ):
