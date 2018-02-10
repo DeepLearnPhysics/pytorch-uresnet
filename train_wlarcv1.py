@@ -198,8 +198,8 @@ def main():
     weight_decay = 1.0e-3
 
     # training length
-    batchsize_train = 1
-    batchsize_valid = 1
+    batchsize_train = 10
+    batchsize_valid =  4
     start_epoch = 0
     epochs      = 1
     start_iter  = 0
@@ -207,11 +207,11 @@ def main():
     #num_iters    = None # if None
     iter_per_epoch = None # determined later
 
-    nbatches_per_itertrain = 4
+    nbatches_per_itertrain = 5
     itersize_train         = batchsize_train*nbatches_per_itertrain
     trainbatches_per_print = 1
     
-    nbatches_per_itervalid = 4
+    nbatches_per_itervalid = 5
     itersize_valid         = batchsize_valid*nbatches_per_itervalid
     validbatches_per_print = 1
 
@@ -573,10 +573,11 @@ def accuracy(output, target):
     batch_size = target.size(0)
     _, pred = output.topk(maxk, 1, True, False)
 
-    correct = pred.eq(target)
+    np_pred    = pred.cpu().numpy()
+    np_target  = target.cpu().numpy().reshape( np_pred.shape )
+    np_correct = np.zeros( np_pred.shape, dtype=np.int )
+    np_correct[ np_pred==np_target ] = 1
 
-    np_correct = correct.cpu().numpy()
-    np_target  = target.cpu().numpy()
     print np_correct.shape
     print np_target.shape
 
