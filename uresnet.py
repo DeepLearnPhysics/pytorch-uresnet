@@ -113,7 +113,16 @@ class DoubleResNet(nn.Module):
         out = self.res1(x)
         out = self.res2(out)
         return out
-        
+
+class ConvTransposeLayer(nn.Module):
+    def __init__(self,inplanes,outplanes,stride=2):
+        super(ConvTransposeLayer,self).__init__()
+        self.res    = Bottleneck(inplanes,inplanes,stride=1)
+        self.deconv = nn.ConvTranspose2d( inplanes, outplanes, kernel_size=3, stride=2, padding=1, bias=False )
+    def forward(self,x,output_size):
+        out = self.res(x)
+        out = self.deconv(out,output_size=output_size)
+        return out
     
 class UResNet(nn.Module):
 
@@ -125,10 +134,25 @@ class UResNet(nn.Module):
         
         # Encoder
 
-        self.conv1 = nn.Conv2d(input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=True) # initial conv layer
+        # stem
+        # one big stem
+        #self.conv1 = nn.Conv2d(input_channels, self.inplanes, kernel_size=7, stride=1, padding=3, bias=True) # initial conv layer
+        #self.bn1 = nn.BatchNorm2d(self.inplanes)
+        #self.relu1 = nn.ReLU(inplace=True)        
+
+        # 7x7 = (3x3)^3
+        self.conv1 = nn.Conv2d(input_channels, self.inplanes, kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
         self.bn1 = nn.BatchNorm2d(self.inplanes)
         self.relu1 = nn.ReLU(inplace=True)        
 
+        self.conv2 = nn.Conv2d(self.inplanes, self.inplanes, kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
+        self.bn2 = nn.BatchNorm2d(self.inplanes)
+        self.relu2 = nn.ReLU(inplace=True)        
+
+        self.conv3 = nn.Conv2d(self.inplanes, self.inplanes, kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
+        self.bn3 = nn.BatchNorm2d(self.inplanes)
+        self.relu3 = nn.ReLU(inplace=True)        
+        
         self.enc_layer1 = self._make_encoding_layer( self.inplanes*1, self.inplanes*2,  stride=2)
         self.enc_layer2 = self._make_encoding_layer( self.inplanes*2, self.inplanes*4,  stride=2)
         self.enc_layer3 = self._make_encoding_layer( self.inplanes*4, self.inplanes*8,  stride=2)
@@ -139,12 +163,22 @@ class UResNet(nn.Module):
         self.dec_layer2 = self._make_decoding_layer( self.inplanes*4*2, self.inplanes*2, stride=2 )
         self.dec_layer1 = self._make_decoding_layer( self.inplanes*2*2, self.inplanes*1, stride=2 )
         
-        # final conv layers
-        self.conv10 = nn.Conv2d(self.inplanes, 64, kernel_size=7, stride=1, padding=3, bias=True) # initial conv layer
-        self.bn10   = nn.BatchNorm2d(64)
+        # final conv stem (7x7) = (3x3)^3
+        nkernels = 16
+        self.conv10 = nn.Conv2d(self.inplanes, nkernels, kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
+        self.bn10   = nn.BatchNorm2d(nkernels)
         self.relu10 = nn.ReLU(inplace=True)
+
+        self.conv11 = nn.Conv2d(nkernels, nkernels*2, kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
+        self.bn11   = nn.BatchNorm2d(nkernels*2)
+        self.relu11 = nn.ReLU(inplace=True)
+
+        self.conv12 = nn.Conv2d(nkernels*2, nkernels, kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
+        self.bn12   = nn.BatchNorm2d(nkernels)
+        self.relu12 = nn.ReLU(inplace=True)
         
-        self.conv11 = nn.Conv2d(64, num_classes,   kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
+        # perceptron
+        self.conv13 = nn.Conv2d(nkernels, num_classes, kernel_size=1, stride=1, padding=0, bias=True) # initial conv layer
 
         # we use log softmax in order to more easily pair it with 
         self.softmax = nn.LogSoftmax(dim=1) # should return [b,c=3,h,w], normalized over, c dimension
@@ -163,17 +197,27 @@ class UResNet(nn.Module):
         return DoubleResNet(inplanes,planes,stride=stride)
 
     def _make_decoding_layer(self, inplanes, planes, stride=2):
-
-        return nn.ConvTranspose2d( inplanes, planes, kernel_size=3, stride=2, padding=1, bias=False )
+        #return nn.ConvTranspose2d( inplanes, planes, kernel_size=3, stride=2, padding=1, bias=False )
+        return ConvTransposeLayer( inplanes, planes, stride )
 
     def forward(self, x):
 
         if self._showsizes:
             print "input: ",x.size()," is_cuda=",x.is_cuda
-        
+
+        # stem
         x = self.conv1(x)
         x = self.bn1(x)
-        x0 = self.relu1(x)
+        x = self.relu1(x)
+
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.relu2(x)
+
+        x = self.conv3(x)
+        x = self.bn3(x)
+        x0 = self.relu3(x)
+
         if self._showsizes:
             print "after conv1, x0: ",x0.size()
 
@@ -224,6 +268,14 @@ class UResNet(nn.Module):
         x = self.relu10(x)
 
         x = self.conv11(x)
+        x = self.bn11(x)
+        x = self.relu11(x)
+        
+        x = self.conv12(x)
+        x = self.bn12(x)
+        x = self.relu12(x)
+
+        x = self.conv13(x)
 
         x = self.softmax(x)
         if self._showsizes:

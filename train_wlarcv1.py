@@ -34,7 +34,8 @@ from tensorboardX import SummaryWriter
 from uresnet import UResNet
 
 GPUMODE=True
-
+RESUME_FROM_CHECKPOINT=False
+RUNPROFILER=False
 
 # SegData: class to hold batch data
 # we expect LArCV1Dataset to fill this object
@@ -51,7 +52,24 @@ class SegData:
             raise ValueError("SegData instance hasn't been filled yet")
         return self.dim
     
-    
+# Data augmentation/manipulation functions
+def padandcrop(npimg2d,nplabelid,npweightid):
+    imgpad  = np.zeros( (264,264), dtype=np.float32 )
+    imgpad[4:256+4,4:256+4] = npimg2d[:,:]
+    randx = np.random.randint(0,8)
+    randy = np.random.randint(0,8)
+    return imgpad[randx:randx+256,randy:randy+256]
+
+def padandcropandflip(npimg2d):
+    imgpad  = np.zeros( (264,264), dtype=np.float32 )
+    imgpad[4:256+4,4:256+4] = npimg2d[:,:]
+    if np.random.rand()>0.5:
+        imgpad = np.flip( imgpad, 0 )
+    if np.random.rand()>0.5:
+        imgpad = np.flip( imgpad, 1 )
+    randx = np.random.randint(0,8)
+    randy = np.random.randint(0,8)
+    return imgpad[randx:randx+256,randy:randy+256]    
 
 # Data interface
 class LArCV1Dataset:
@@ -112,24 +130,6 @@ class LArCV1Dataset:
         
         return data
 
-# Data augmentation/manipulation functions
-def padandcrop(npimg2d):
-    imgpad  = np.zeros( (264,264), dtype=np.float32 )
-    imgpad[4:256+4,4:256+4] = npimg2d[:,:]
-    randx = np.random.randint(0,8)
-    randy = np.random.randint(0,8)
-    return imgpad[randx:randx+256,randy:randy+256]
-
-def padandcropandflip(npimg2d):
-    imgpad  = np.zeros( (264,264), dtype=np.float32 )
-    imgpad[4:256+4,4:256+4] = npimg2d[:,:]
-    if np.random.rand()>0.5:
-        imgpad = np.flip( imgpad, 0 )
-    if np.random.rand()>0.5:
-        imgpad = np.flip( imgpad, 1 )
-    randx = np.random.randint(0,8)
-    randy = np.random.randint(0,8)
-    return imgpad[randx:randx+256,randy:randy+256]
 
 # Loss Function
 # We define a pixel wise L2 loss
@@ -199,21 +199,23 @@ def main():
 
     # training length
     batchsize_train = 10
-    batchsize_valid =  4
+    batchsize_valid = 2
     start_epoch = 0
     epochs      = 1
     start_iter  = 0
     num_iters   = 10000
     #num_iters    = None # if None
     iter_per_epoch = None # determined later
+    iter_per_valid = 10
+    iter_per_checkpoint = 500
 
     nbatches_per_itertrain = 5
     itersize_train         = batchsize_train*nbatches_per_itertrain
     trainbatches_per_print = 1
     
-    nbatches_per_itervalid = 5
+    nbatches_per_itervalid = 25
     itersize_valid         = batchsize_valid*nbatches_per_itervalid
-    validbatches_per_print = 1
+    validbatches_per_print = 5
 
     optimizer = torch.optim.SGD(model.parameters(), lr,
                                 momentum=momentum,
@@ -321,11 +323,11 @@ def main():
     print "Number of epochs: ",epochs
     print "Iter per epoch: ",iter_per_epoch
 
-    with torch.autograd.profiler.profile(enabled=False) as prof:
+    with torch.autograd.profiler.profile(enabled=RUNPROFILER) as prof:
 
         # Resume training option
-        if False:
-            checkpoint = torch.load( "checkpoint.pth.p01.tar" )
+        if RESUME_FROM_CHECKPOINT:
+            checkpoint = torch.load( "checkpoint.pth.tar" )
             best_prec1 = checkpoint["best_prec1"]
             model.load_state_dict(checkpoint["state_dict"])
             optimizer.load_state_dict(checkpoint['optimizer'])
@@ -353,33 +355,40 @@ def main():
             print "Iter:%d Epoch:%d.%d train aveloss=%.3f aveacc=%.3f"%(ii,ii/iter_per_epoch,ii%iter_per_epoch,train_ave_loss,train_ave_acc)
 
             # evaluate on validation set
-            try:
-                prec1 = validate(iovalid, batchsize_valid, model, criterion, nbatches_per_itervalid, validbatches_per_print, ii)
-            except Exception,e:
-                print "Error in validation routine!"            
-                print e.message
-                print e.__class__.__name__
-                traceback.print_exc(e)
-                break
+            if ii%iter_per_valid==0:
+                try:
+                    prec1 = validate(iovalid, batchsize_valid, model, criterion, nbatches_per_itervalid, validbatches_per_print, ii)
+                except Exception,e:
+                    print "Error in validation routine!"            
+                    print e.message
+                    print e.__class__.__name__
+                    traceback.print_exc(e)
+                    break
 
-            # remember best prec@1 and save checkpoint
-            is_best = prec1 > best_prec1
-            best_prec1 = max(prec1, best_prec1)
-            save_checkpoint({
-                'iter':ii,
-                'epoch': ii/iter_per_epoch,
-                'state_dict': model.state_dict(),
-                'best_prec1': best_prec1,
-                'optimizer' : optimizer.state_dict(),
-            }, is_best, -1)
-            if ii>0 and ii%iter_per_epoch==0:
+                # remember best prec@1 and save checkpoint
+                is_best = prec1 > best_prec1
+                best_prec1 = max(prec1, best_prec1)
+
+            # check pointing
+            if is_best:
+                print "Saving best model"
                 save_checkpoint({
                     'iter':ii,
                     'epoch': ii/iter_per_epoch,
                     'state_dict': model.state_dict(),
                     'best_prec1': best_prec1,
                     'optimizer' : optimizer.state_dict(),
-                }, False, epoch)
+                }, is_best, -1)
+                
+            if ii>0 and ii%iter_per_checkpoint==0:
+                print "saving periodic checkpoint"
+                save_checkpoint({
+                    'iter':ii,
+                    'epoch': ii/iter_per_epoch,
+                    'state_dict': model.state_dict(),
+                    'best_prec1': best_prec1,
+                    'optimizer' : optimizer.state_dict(),
+                }, False, ii)
 
     print "FIN"
     print "PROFILER"
@@ -394,7 +403,9 @@ def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch,
     batch_time = AverageMeter() # total for batch
     data_time = AverageMeter()
     format_time = AverageMeter()
-    train_time = AverageMeter()
+    forward_time = AverageMeter()
+    backward_time = AverageMeter()
+    acc_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
 
@@ -405,18 +416,15 @@ def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch,
     for i in range(0,nbatches):
         #print "epoch ",epoch," batch ",i," of ",nbatches
         batchstart = time.time()
-    
+
+        # data loading time        
         end = time.time()        
         data = train_loader.getbatch(batchsize)
-        # measure data loading time
         data_time.update(time.time() - end)
 
-        end = time.time()
 
-        # measure data formatting time
-        format_time.update(time.time() - end)
-        
         # convert to pytorch Variable (with automatic gradient calc.)
+        end = time.time()        
         if GPUMODE:
             images_var = torch.autograd.Variable(data.images.cuda())
             labels_var = torch.autograd.Variable(data.labels.cuda(),requires_grad=False)
@@ -425,29 +433,46 @@ def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch,
             images_var = torch.autograd.Variable(data.images)
             labels_var = torch.autograd.Variable(data.labels,requires_grad=False)
             weight_var = torch.autograd.Variable(data.weight,requires_grad=False)
-            
+        format_time.update( time.time()-end )
+
+        
         # compute output
+        if RUNPROFILER:
+            torch.cuda.synchronize()
         end = time.time()
         output = model(images_var)
         loss = criterion(output, labels_var, weight_var)
+        if RUNPROFILER:
+            torch.cuda.synchronize()                
+        forward_time.update(time.time()-end)
+
+        # compute gradient and do SGD step
+        if RUNPROFILER:
+            torch.cuda.synchronize()                
+        end = time.time()        
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        if RUNPROFILER:        
+            torch.cuda.synchronize()                
+        backward_time.update(time.time()-end)
 
         # measure accuracy and record loss
-        prec1 = accuracy(output.data, labels_var.data)
+        end = time.time()
+        prec1 = accuracy(output.data, labels_var.data, images_var.data)
+        acc_time.update(time.time()-end)
+
+        # updates
         losses.update(loss.data[0], data.images.size(0))
         top1.update(prec1[-1], data.images.size(0))
         writer.add_scalar('data/train_loss', loss.data[0], epoch )        
         writer.add_scalars('data/train_accuracy', {'background': prec1[0],
                                                    'track': prec1[1],
                                                    'shower': prec1[2],
-                                                   'total':prec1[3]}, epoch )
+                                                   'total':prec1[3],
+                                                   'nonzero':prec1[4]}, epoch )        
 
-        # compute gradient and do SGD step
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        train_time.update(time.time()-end)
-
-        # measure elapsed time
+        # measure elapsed time for batch
         batch_time.update(time.time() - batchstart)
 
 
@@ -456,17 +481,13 @@ def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch,
                       batch_time.val,batch_time.avg,
                       data_time.val,data_time.avg,
                       format_time.val,format_time.avg,
-                      train_time.val,train_time.avg,
+                      forward_time.val,forward_time.avg,
+                      backward_time.val,backward_time.avg,
+                      acc_time.val,acc_time.avg,                      
                       losses.val,losses.avg,
                       top1.val,top1.avg)
-            print "Epoch: [%d][%d/%d]\tTime %.3f (%.3f)\tData %.3f (%.3f)\tFormat %.3f (%.3f)\tTrain %.3f (%.3f)\tLoss %.3f (%.3f)\tPrec@1 %.3f (%.3f)"%status
-            #print('Epoch: [{0}][{1}/{2}]\t'
-            #      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-            #      'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-            #      'Loss {losses.val:.4f} ({losses.avg:.4f})\t'
-            #      'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-            #          epoch, i, len(train_loader), batch_time=batch_time,
-            #          data_time=data_time, losses=losses, top1=top1 ))
+            print "Iter: [%d][%d/%d]\tBatch %.3f (%.3f)\tData %.3f (%.3f)\tFormat %.3f (%.3f)\tForw %.3f (%.3f)\tBack %.3f (%.3f)\tAcc %.3f (%.3f)\t || \tLoss %.3f (%.3f)\tPrec@1 %.3f (%.3f)"%status
+
     return losses.avg,top1.avg
 
 
@@ -501,14 +522,15 @@ def validate(val_loader, batchsize, model, criterion, nbatches, print_freq, iite
         #loss = criterion(output, labels_var)
 
         # measure accuracy and record loss
-        prec1 = accuracy(output.data, labels_var.data)
+        prec1 = accuracy(output.data, labels_var.data, images_var.data)
         losses.update(loss.data[0], data.images.size(0))
         top1.update(prec1[-1], data.images.size(0))
         writer.add_scalar('data/valid_loss', loss.data[0], iiter )
         writer.add_scalars('data/valid_accuracy', {'background': prec1[0],
                                                    'track': prec1[1],
                                                    'shower': prec1[2],
-                                                   'total':prec1[3]}, iiter )
+                                                   'total':prec1[3],
+                                                   'nonzero':prec1[4]}, iiter )
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -516,7 +538,7 @@ def validate(val_loader, batchsize, model, criterion, nbatches, print_freq, iite
 
         if i % print_freq == 0:
             status = (i,nbatches,batch_time.val,batch_time.avg,losses.val,losses.avg,top1.val,top1.avg)
-            print "Test: [%d/%d]\tTime %.3f (%.3f)\tLoss %.3f (%.3f)\tPrec@1 %.3f (%.3f)"%status
+            print "Valid: [%d/%d]\tTime %.3f (%.3f)\tLoss %.3f (%.3f)\tPrec@1 %.3f (%.3f)"%status
             #print('Test: [{0}/{1}]\t'
             #      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
             #      'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
@@ -567,34 +589,63 @@ def adjust_learning_rate(optimizer, epoch, lr):
         param_group['lr'] = lr
 
 
-def accuracy(output, target):
+def accuracy(output, target, imgdata):
     """Computes the accuracy. we want the aggregate accuracy along with accuracies for the different labels. easiest to just use numpy..."""
+    profile = False
+    # needs to be as gpu as possible!
     maxk = 1
     batch_size = target.size(0)
-    _, pred = output.topk(maxk, 1, True, False)
+    if profile:
+        torch.cuda.synchronize()
+        start = time.time()    
+    #_, pred = output.topk(maxk, 1, True, False) # on gpu. slow AF
+    _, pred = output.max( 1, keepdim=False) # on gpu
+    if profile:
+        torch.cuda.synchronize()
+        print "time for topk: ",time.time()-start," secs"
 
-    np_pred    = pred.cpu().numpy()
-    np_target  = target.cpu().numpy().reshape( np_pred.shape )
-    np_correct = np.zeros( np_pred.shape, dtype=np.int )
-    np_correct[ np_pred==np_target ] = 1
+    if profile:
+        start = time.time()
+    #print "pred ",pred.size()," iscuda=",pred.is_cuda
+    #print "target ",target.size(), "iscuda=",target.is_cuda
+    targetex = target.resize_( pred.size() ) # expanded view, should not include copy
+    correct = pred.eq( targetex ) # on gpu
+    #print "correct ",correct.size(), " iscuda=",correct.is_cuda    
+    if profile:
+        torch.cuda.synchronize()
+        print "time to calc correction matrix: ",time.time()-start," secs"
 
-    print np_correct.shape
-    print np_target.shape
-
-    unique, count = np.unique( np_target, return_counts=True )
-    denom = dict(zip(unique,count))
-    print unique,count
-    
+    # we want counts for elements wise
+    num_per_class = {}
+    corr_per_class = {}
+    total_corr = 0
+    total_pix  = 0
+    if profile:
+        torch.cuda.synchronize()            
+        start = time.time()
+    for c in range(output.size(1)):
+        # loop over classes
+        classmat = targetex.eq(int(c)) # elements where class is labeled
+        #print "classmat: ",classmat.size()," iscuda=",classmat.is_cuda
+        num_per_class[c] = classmat.sum()
+        corr_per_class[c] = (correct*classmat).sum() # mask by class matrix, then sum
+        total_corr += corr_per_class[c]
+        total_pix  += num_per_class[c]
+    if profile:
+        torch.cuda.synchronize()                
+        print "time to reduce: ",time.time()-start," secs"
+        
+    # make result vector
     res = []
     for c in range(output.size(1)):
-        if c not in unique:
-            res.append(0)
-            continue
-        cc = np.sum( np_correct[ np_target.reshape(np_correct.shape)==c ] )
-        res.append( float(cc)/float(denom[c])*100.0 )
+        if num_per_class[c]>0:
+            res.append( corr_per_class[c]/float(num_per_class[c])*100.0 )
+        else:
+            res.append( 0.0 )
 
     # totals
-    res.append( 100.0*np.sum(np_correct)/np_correct.size )
+    res.append( 100.0*float(total_corr)/total_pix )
+    res.append( 100.0*float(corr_per_class[1]+corr_per_class[2])/(num_per_class[1]+num_per_class[2]) ) # track/shower acc
         
     return res
 
