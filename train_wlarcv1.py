@@ -369,17 +369,18 @@ def main():
                 is_best = prec1 > best_prec1
                 best_prec1 = max(prec1, best_prec1)
 
-            # check pointing
-            if is_best:
-                print "Saving best model"
-                save_checkpoint({
-                    'iter':ii,
-                    'epoch': ii/iter_per_epoch,
-                    'state_dict': model.state_dict(),
-                    'best_prec1': best_prec1,
-                    'optimizer' : optimizer.state_dict(),
-                }, is_best, -1)
-                
+                # check point for best model
+                if is_best:
+                    print "Saving best model"
+                    save_checkpoint({
+                        'iter':ii,
+                        'epoch': ii/iter_per_epoch,
+                        'state_dict': model.state_dict(),
+                        'best_prec1': best_prec1,
+                        'optimizer' : optimizer.state_dict(),
+                    }, is_best, -1)
+
+            # periodic checkpoint
             if ii>0 and ii%iter_per_checkpoint==0:
                 print "saving periodic checkpoint"
                 save_checkpoint({
