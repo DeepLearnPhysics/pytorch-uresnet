@@ -409,6 +409,10 @@ def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch,
     losses = AverageMeter()
     top1 = AverageMeter()
 
+    acc_list = []
+    for i in range(5):
+        acc_list.append( AverageMeter() )
+
     # switch to train mode
     model.train()
     model.cuda()
@@ -465,12 +469,8 @@ def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch,
         # updates
         losses.update(loss.data[0], data.images.size(0))
         top1.update(prec1[-1], data.images.size(0))
-        writer.add_scalar('data/train_loss', loss.data[0], epoch )        
-        writer.add_scalars('data/train_accuracy', {'background': prec1[0],
-                                                   'track': prec1[1],
-                                                   'shower': prec1[2],
-                                                   'total':prec1[3],
-                                                   'nonzero':prec1[4]}, epoch )        
+        for i,acc in enumerate(prec1):
+            acc_list[i].update( acc )
 
         # measure elapsed time for batch
         batch_time.update(time.time() - batchstart)
@@ -488,6 +488,13 @@ def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch,
                       top1.val,top1.avg)
             print "Iter: [%d][%d/%d]\tBatch %.3f (%.3f)\tData %.3f (%.3f)\tFormat %.3f (%.3f)\tForw %.3f (%.3f)\tBack %.3f (%.3f)\tAcc %.3f (%.3f)\t || \tLoss %.3f (%.3f)\tPrec@1 %.3f (%.3f)"%status
 
+    writer.add_scalar('data/train_loss', loss.avg, epoch )        
+    writer.add_scalars('data/train_accuracy', {'background': acc_list[0].avg,
+                                               'track':  acc_list[1].avg,
+                                               'shower': acc_list[2].avg,
+                                               'total':  acc_list[3].avg,
+                                               'nonzero':acc_list[4].avg}, epoch )        
+    
     return losses.avg,top1.avg
 
 
@@ -499,6 +506,10 @@ def validate(val_loader, batchsize, model, criterion, nbatches, print_freq, iite
     losses = AverageMeter()
     top1 = AverageMeter()
 
+    acc_list = []
+    for i in range(5):
+        acc_list.append( AverageMeter() )
+    
     # switch to evaluate mode
     model.eval()
 
@@ -525,13 +536,9 @@ def validate(val_loader, batchsize, model, criterion, nbatches, print_freq, iite
         prec1 = accuracy(output.data, labels_var.data, images_var.data)
         losses.update(loss.data[0], data.images.size(0))
         top1.update(prec1[-1], data.images.size(0))
-        writer.add_scalar('data/valid_loss', loss.data[0], iiter )
-        writer.add_scalars('data/valid_accuracy', {'background': prec1[0],
-                                                   'track': prec1[1],
-                                                   'shower': prec1[2],
-                                                   'total':prec1[3],
-                                                   'nonzero':prec1[4]}, iiter )
-
+        for i,acc in enumerate(prec1):
+            acc_list[i].update( acc )
+                
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
@@ -548,6 +555,14 @@ def validate(val_loader, batchsize, model, criterion, nbatches, print_freq, iite
 
     #print(' * Prec@1 {top1.avg:.3f}'
     #      .format(top1=top1))
+
+    writer.add_scalar( 'data/valid_loss', loss.avg, iiter )
+    writer.add_scalars('data/valid_accuracy', {'background': acc_list[0].avg,
+                                               'track':   acc_list[1].avg,
+                                               'shower':  acc_list[2].avg,
+                                               'total':   acc_list[3].avg,
+                                               'nonzero': acc_list[4].avg}, iiter )
+
     print "Test:Result* Prec@1 %.3f\tLoss %.3f"%(top1.avg,losses.avg)
 
     return float(top1.avg)
