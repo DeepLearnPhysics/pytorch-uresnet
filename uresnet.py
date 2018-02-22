@@ -164,21 +164,21 @@ class UResNet(nn.Module):
         self.dec_layer1 = self._make_decoding_layer( self.inplanes*2*2, self.inplanes*1, stride=2 )
         
         # final conv stem (7x7) = (3x3)^3
-        nkernels = 16
-        self.conv10 = nn.Conv2d(self.inplanes, nkernels, kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
-        self.bn10   = nn.BatchNorm2d(nkernels)
+        self.nkernels = 16
+        self.conv10 = nn.Conv2d(self.inplanes, self.nkernels, kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
+        self.bn10   = nn.BatchNorm2d(self.nkernels)
         self.relu10 = nn.ReLU(inplace=True)
 
-        self.conv11 = nn.Conv2d(nkernels, nkernels*2, kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
-        self.bn11   = nn.BatchNorm2d(nkernels*2)
+        self.conv11 = nn.Conv2d(self.nkernels, self.nkernels*2, kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
+        self.bn11   = nn.BatchNorm2d(self.nkernels*2)
         self.relu11 = nn.ReLU(inplace=True)
 
-        self.conv12 = nn.Conv2d(nkernels*2, nkernels, kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
-        self.bn12   = nn.BatchNorm2d(nkernels)
+        self.conv12 = nn.Conv2d(self.nkernels*2, self.nkernels, kernel_size=3, stride=1, padding=1, bias=True) # initial conv layer
+        self.bn12   = nn.BatchNorm2d(self.nkernels)
         self.relu12 = nn.ReLU(inplace=True)
         
         # perceptron
-        self.conv13 = nn.Conv2d(nkernels, num_classes, kernel_size=1, stride=1, padding=0, bias=True) # initial conv layer
+        self.conv13 = nn.Conv2d(self.nkernels, num_classes, kernel_size=1, stride=1, padding=0, bias=True) # initial conv layer
 
         # we use log softmax in order to more easily pair it with 
         self.softmax = nn.LogSoftmax(dim=1) # should return [b,c=3,h,w], normalized over, c dimension
