@@ -35,9 +35,10 @@ from tensorboardX import SummaryWriter
 from uresnet import UResNet
 
 GPUMODE=True
-RESUME_FROM_CHECKPOINT=False
+RESUME_FROM_CHECKPOINT=True
 RUNPROFILER=False
-START_FILE="v1/run1/checkpoint.1000th.tar"
+PRETRAIN_START_FILE="checkpoint_pretrain/run1/checkpoint.1000th.tar"
+RESUME_CHECKPOINT_FILE="checkpoint_finetune_run1/checkpoint.9500th.tar"
 
 # SegData: class to hold batch data
 # we expect LArCV1Dataset to fill this object
@@ -181,16 +182,22 @@ def main():
     model = UResNet(inplanes=16,input_channels=1,num_classes=3)
     
     # Resume training option. Fine tuning.
-    checkpoint = torch.load( START_FILE )
-    model.load_state_dict(checkpoint["state_dict"])
+    if not RESUME_FROM_CHECKPOINT:
+        checkpoint = torch.load( PRETRAIN_START_FILE )
+        model.load_state_dict(checkpoint["state_dict"])
 
-    # reset last layer
-    numclasses = 4 # (bg, shower, track, noise)
-    model.conv13 = nn.Conv2d(model.nkernels, numclasses, 1, stride=1, padding=0, bias=True )
-    n = model.conv13.kernel_size[0] * model.conv13.kernel_size[1] * model.conv13.out_channels
-    model.conv13.weight.data.normal_(0, math.sqrt(2. / n))
-
-    print model
+        # reset last layer to output 4 classes
+        numclasses = 4 # (bg, shower, track, noise)
+        model.conv13 = nn.Conv2d(model.nkernels, numclasses, 1, stride=1, padding=0, bias=True )
+        n = model.conv13.kernel_size[0] * model.conv13.kernel_size[1] * model.conv13.out_channels
+        model.conv13.weight.data.normal_(0, math.sqrt(2. / n))
+    else:
+        print "Resume training option"
+        numclasses = 4 # (bg, shower, track, noise)
+        model.conv13 = nn.Conv2d(model.nkernels, numclasses, 1, stride=1, padding=0, bias=True )
+        checkpoint = torch.load( RESUME_CHECKPOINT_FILE )
+        best_prec1 = checkpoint["best_prec1"]
+        model.load_state_dict(checkpoint["state_dict"])
     
     if GPUMODE:
         model.cuda()
@@ -209,7 +216,7 @@ def main():
         criterion = PixelWiseNLLLoss()
 
     # training parameters
-    lr = 1.0e-4
+    lr = 1.0e-5
     momentum = 0.9
     weight_decay = 1.0e-3
 
@@ -236,6 +243,9 @@ def main():
     optimizer = torch.optim.SGD(model.parameters(), lr,
                                 momentum=momentum,
                                 weight_decay=weight_decay)
+    #if RESUME_FROM_CHECKPOINT:
+    #    optimizer.load_state_dict(checkpoint['optimizer'])
+    
 
     cudnn.benchmark = True
 
@@ -248,8 +258,8 @@ def main():
   EnableFilter: false
   RandomAccess: true
   UseThread:    false
-  #InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p00.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p01.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p02.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p03.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p04.root"]
-  InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p00.root"]
+  InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p00.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p01.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p02.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p03.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p04.root"]
+  #InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p00.root"]
 
   ProcessType:  ["SegFiller"]
   ProcessName:  ["SegFiller"]
@@ -285,8 +295,8 @@ def main():
   EnableFilter: false
   RandomAccess: true
   UseThread:    false
-  #InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_valid_p00.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_valid_p01.root"]
-  InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_valid_p00.root"]
+  InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_valid_p00.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_valid_p01.root"]
+  #InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_valid_p00.root"]
   ProcessType:  ["SegFiller"]
   ProcessName:  ["SegFiller"]
 
@@ -343,13 +353,6 @@ def main():
     print "Iter per epoch: ",iter_per_epoch
 
     with torch.autograd.profiler.profile(enabled=RUNPROFILER) as prof:
-
-        # Resume training option
-        if RESUME_FROM_CHECKPOINT:
-            checkpoint = torch.load( START_FILE )
-            best_prec1 = checkpoint["best_prec1"]
-            model.load_state_dict(checkpoint["state_dict"])
-            optimizer.load_state_dict(checkpoint['optimizer'])
         
 
         for ii in range(start_iter, num_iters):
@@ -409,6 +412,16 @@ def main():
                     'best_prec1': best_prec1,
                     'optimizer' : optimizer.state_dict(),
                 }, False, ii)
+
+
+        print "saving last state"
+        save_checkpoint({
+            'iter':num_iters,
+            'epoch': num_iters/iter_per_epoch,
+            'state_dict': model.state_dict(),
+            'best_prec1': best_prec1,
+            'optimizer' : optimizer.state_dict(),
+        }, False, num_iters)
 
     print "FIN"
     print "PROFILER"
