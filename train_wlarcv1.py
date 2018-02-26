@@ -174,13 +174,13 @@ def main():
 
     # create model, mark it to run on the GPU
     if GPUMODE:
-        model = UResNet(inplanes=16,input_channels=1,num_classes=3,showsizes=True)
+        model = UResNet(inplanes=16,input_channels=1,num_classes=3,showsizes=False)
         model.cuda()
     else:
         model = UResNet(inplanes=16,input_channels=1,num_classes=3)
 
     # uncomment to dump model
-    #print "Loaded model: ",model
+    print "Loaded model: ",model
     # check where model pars are
     #for p in model.parameters():
     #    print p.is_cuda
@@ -233,7 +233,7 @@ def main():
   RandomAccess: true
   UseThread:    false
   #InputFiles:   ["/mnt/raid0/taritree/ssnet_training_data/train00.root","/mnt/raid0/taritree/ssnet_training_data/train01.root"]  
-  InputFiles:   ["/media/hdd1/larbys/ssnet_dllee_trainingdata/train00.root","/media/hdd1/larbys/ssnet_dllee_trainingdata/train01.root"]  
+  InputFiles:   ["/media/hdd1/larbys/ssnet_dllee_trainingdata/train00.root","/media/hdd1/larbys/ssnet_dllee_trainingdata/train01.root","/media/hdd1/larbys/ssnet_dllee_trainingdata/train03.root"]
   ProcessType:  ["SegFiller"]
   ProcessName:  ["SegFiller"]
 
@@ -392,6 +392,17 @@ def main():
                     'best_prec1': best_prec1,
                     'optimizer' : optimizer.state_dict(),
                 }, False, ii)
+                
+        # end of profiler context
+        print "saving last state"
+        save_checkpoint({
+            'iter':num_iters,
+            'epoch': num_iters/iter_per_epoch,
+            'state_dict': model.state_dict(),
+            'best_prec1': best_prec1,
+            'optimizer' : optimizer.state_dict(),
+        }, False, num_iters)
+
 
     print "FIN"
     print "PROFILER"
@@ -491,7 +502,7 @@ def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch,
                       top1.val,top1.avg)
             print "Iter: [%d][%d/%d]\tBatch %.3f (%.3f)\tData %.3f (%.3f)\tFormat %.3f (%.3f)\tForw %.3f (%.3f)\tBack %.3f (%.3f)\tAcc %.3f (%.3f)\t || \tLoss %.3f (%.3f)\tPrec@1 %.3f (%.3f)"%status
 
-    writer.add_scalar('data/train_loss', loss.avg, epoch )        
+    writer.add_scalar('data/train_loss', losses.avg, epoch )        
     writer.add_scalars('data/train_accuracy', {'background': acc_list[0].avg,
                                                'track':  acc_list[1].avg,
                                                'shower': acc_list[2].avg,
@@ -559,7 +570,7 @@ def validate(val_loader, batchsize, model, criterion, nbatches, print_freq, iite
     #print(' * Prec@1 {top1.avg:.3f}'
     #      .format(top1=top1))
 
-    writer.add_scalar( 'data/valid_loss', loss.avg, iiter )
+    writer.add_scalar( 'data/valid_loss', losses.avg, iiter )
     writer.add_scalars('data/valid_accuracy', {'background': acc_list[0].avg,
                                                'track':   acc_list[1].avg,
                                                'shower':  acc_list[2].avg,

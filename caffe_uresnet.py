@@ -133,7 +133,7 @@ class DoubleResNet(nn.Module):
 class ConvTransposeLayer(nn.Module):
     def __init__(self,deconv_inplanes,deconv_outplanes,res_outplanes):
         super(ConvTransposeLayer,self).__init__()
-        self.deconv = nn.ConvTranspose2d( deconv_inplanes, deconv_outplanes, kernel_size=4, stride=2, padding=1, bias=True )
+        self.deconv = nn.ConvTranspose2d( deconv_inplanes, deconv_outplanes, kernel_size=4, stride=2, padding=1, bias=False )
         self.res    = DoubleResNet(res_outplanes+deconv_outplanes,res_outplanes,stride=1)
     def forward(self,x,skip_x):
         out = self.deconv(x,output_size=skip_x.size())
@@ -178,8 +178,8 @@ class UResNet(nn.Module):
         self.relu10 = nn.ReLU(inplace=True)
         
         self.conv11 = nn.Conv2d(self.inplanes, num_classes, kernel_size=7, stride=1, padding=3, bias=True) # initial conv layer
-        self.bn11   = nn.BatchNorm2d(num_classes)
-        self.relu11 = nn.ReLU(inplace=True)
+        #self.bn11   = nn.BatchNorm2d(num_classes)
+        #self.relu11 = nn.ReLU(inplace=True)
         
 
         # we use log softmax in order to more easily pair it with 
@@ -255,8 +255,8 @@ class UResNet(nn.Module):
         x = self.relu10(x)
 
         x = self.conv11(x)
-        x = self.bn11(x)
-        x = self.relu11(x)
+        #x = self.bn11(x)
+        #x = self.relu11(x)
         
         x = self.softmax(x)
         if self._showsizes:
