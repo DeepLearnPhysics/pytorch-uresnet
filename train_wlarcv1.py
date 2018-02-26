@@ -31,7 +31,7 @@ import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 
 # Our model definition
-from uresnet import UResNet
+from caffe_uresnet import UResNet # exact copy of old ssnet
 
 GPUMODE=True
 RESUME_FROM_CHECKPOINT=False
@@ -174,7 +174,7 @@ def main():
 
     # create model, mark it to run on the GPU
     if GPUMODE:
-        model = UResNet(inplanes=16,input_channels=1,num_classes=3)
+        model = UResNet(inplanes=16,input_channels=1,num_classes=3,showsizes=True)
         model.cuda()
     else:
         model = UResNet(inplanes=16,input_channels=1,num_classes=3)
@@ -232,7 +232,8 @@ def main():
   EnableFilter: false
   RandomAccess: true
   UseThread:    false
-  InputFiles:   ["/mnt/raid0/taritree/ssnet_training_data/train00.root","/mnt/raid0/taritree/ssnet_training_data/train01.root"]  
+  #InputFiles:   ["/mnt/raid0/taritree/ssnet_training_data/train00.root","/mnt/raid0/taritree/ssnet_training_data/train01.root"]  
+  InputFiles:   ["/media/hdd1/larbys/ssnet_dllee_trainingdata/train00.root","/media/hdd1/larbys/ssnet_dllee_trainingdata/train01.root"]  
   ProcessType:  ["SegFiller"]
   ProcessName:  ["SegFiller"]
 
@@ -267,7 +268,8 @@ def main():
   EnableFilter: false
   RandomAccess: true
   UseThread:    false
-  InputFiles:   ["/mnt/raid0/taritree/ssnet_training_data/train02.root"]  
+  #InputFiles:   ["/mnt/raid0/taritree/ssnet_training_data/train02.root"]  
+  InputFiles:   ["/media/hdd1/larbys/ssnet_dllee_trainingdata/train02.root"]  
   ProcessType:  ["SegFiller"]
   ProcessName:  ["SegFiller"]
 
