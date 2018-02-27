@@ -34,7 +34,8 @@ from tensorboardX import SummaryWriter
 from caffe_uresnet import UResNet # exact copy of old ssnet
 
 GPUMODE=True
-RESUME_FROM_CHECKPOINT=False
+GPUID=1
+RESUME_FROM_CHECKPOINT=True
 RUNPROFILER=False
 
 # SegData: class to hold batch data
@@ -175,7 +176,7 @@ def main():
     # create model, mark it to run on the GPU
     if GPUMODE:
         model = UResNet(inplanes=16,input_channels=1,num_classes=3,showsizes=False)
-        model.cuda()
+        model.cuda(GPUID)
     else:
         model = UResNet(inplanes=16,input_channels=1,num_classes=3)
 
@@ -188,7 +189,7 @@ def main():
 
     # define loss function (criterion) and optimizer
     if GPUMODE:
-        criterion = PixelWiseNLLLoss().cuda()
+        criterion = PixelWiseNLLLoss().cuda(GPUID)
     else:
         criterion = PixelWiseNLLLoss()
 
@@ -202,7 +203,7 @@ def main():
     batchsize_valid = 2
     start_epoch = 0
     epochs      = 1
-    start_iter  = 0
+    start_iter  = 1000
     num_iters   = 10000
     #num_iters    = None # if None
     iter_per_epoch = None # determined later
@@ -329,7 +330,7 @@ def main():
 
         # Resume training option
         if RESUME_FROM_CHECKPOINT:
-            checkpoint = torch.load( "checkpoint.pth.tar" )
+            checkpoint = torch.load( "checkpoint.1000th.tar" )
             best_prec1 = checkpoint["best_prec1"]
             model.load_state_dict(checkpoint["state_dict"])
             optimizer.load_state_dict(checkpoint['optimizer'])
@@ -429,7 +430,7 @@ def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch,
 
     # switch to train mode
     model.train()
-    model.cuda()
+    model.cuda(GPUID)
 
     for i in range(0,nbatches):
         #print "epoch ",epoch," batch ",i," of ",nbatches
@@ -444,9 +445,9 @@ def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch,
         # convert to pytorch Variable (with automatic gradient calc.)
         end = time.time()        
         if GPUMODE:
-            images_var = torch.autograd.Variable(data.images.cuda())
-            labels_var = torch.autograd.Variable(data.labels.cuda(),requires_grad=False)
-            weight_var = torch.autograd.Variable(data.weight.cuda(),requires_grad=False)
+            images_var = torch.autograd.Variable(data.images.cuda(GPUID))
+            labels_var = torch.autograd.Variable(data.labels.cuda(GPUID),requires_grad=False)
+            weight_var = torch.autograd.Variable(data.weight.cuda(GPUID),requires_grad=False)
         else:
             images_var = torch.autograd.Variable(data.images)
             labels_var = torch.autograd.Variable(data.labels,requires_grad=False)
@@ -533,9 +534,9 @@ def validate(val_loader, batchsize, model, criterion, nbatches, print_freq, iite
 
         # convert to pytorch Variable (with automatic gradient calc.)
         if GPUMODE:
-            images_var = torch.autograd.Variable(data.images.cuda())
-            labels_var = torch.autograd.Variable(data.labels.cuda(),requires_grad=False)
-            weight_var = torch.autograd.Variable(data.weight.cuda(),requires_grad=False)
+            images_var = torch.autograd.Variable(data.images.cuda(GPUID))
+            labels_var = torch.autograd.Variable(data.labels.cuda(GPUID),requires_grad=False)
+            weight_var = torch.autograd.Variable(data.weight.cuda(GPUID),requires_grad=False)
         else:
             images_var = torch.autograd.Variable(data.images)
             labels_var = torch.autograd.Variable(data.labels,requires_grad=False)
