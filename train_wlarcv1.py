@@ -34,9 +34,10 @@ from tensorboardX import SummaryWriter
 from caffe_uresnet import UResNet # exact copy of old ssnet
 
 GPUMODE=True
-GPUID=1
+GPUID=0
 RESUME_FROM_CHECKPOINT=True
 RUNPROFILER=False
+CHECKPOINT_FILE="plane2_caffe/checkpoint.10000th.tar"
 
 # SegData: class to hold batch data
 # we expect LArCV1Dataset to fill this object
@@ -194,7 +195,7 @@ def main():
         criterion = PixelWiseNLLLoss()
 
     # training parameters
-    lr = 1.0e-3
+    lr = 1.0e-4
     momentum = 0.9
     weight_decay = 1.0e-3
 
@@ -203,8 +204,8 @@ def main():
     batchsize_valid = 2
     start_epoch = 0
     epochs      = 1
-    start_iter  = 1000
-    num_iters   = 10000
+    start_iter  = 10000
+    num_iters   = 20000
     #num_iters    = None # if None
     iter_per_epoch = None # determined later
     iter_per_valid = 10
@@ -330,7 +331,7 @@ def main():
 
         # Resume training option
         if RESUME_FROM_CHECKPOINT:
-            checkpoint = torch.load( "checkpoint.1000th.tar" )
+            checkpoint = torch.load( CHECKPOINT_FILE )
             best_prec1 = checkpoint["best_prec1"]
             model.load_state_dict(checkpoint["state_dict"])
             optimizer.load_state_dict(checkpoint['optimizer'])
