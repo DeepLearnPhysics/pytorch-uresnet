@@ -37,7 +37,7 @@ GPUMODE=True
 GPUID=0
 RESUME_FROM_CHECKPOINT=True
 RUNPROFILER=False
-CHECKPOINT_FILE="plane2_caffe/checkpoint.10000th.tar"
+CHECKPOINT_FILE="plane2_caffe/run1/checkpoint.20000th.tar"
 
 # SegData: class to hold batch data
 # we expect LArCV1Dataset to fill this object
@@ -195,7 +195,7 @@ def main():
         criterion = PixelWiseNLLLoss()
 
     # training parameters
-    lr = 1.0e-4
+    lr = 2.0e-5
     momentum = 0.9
     weight_decay = 1.0e-3
 
@@ -204,8 +204,8 @@ def main():
     batchsize_valid = 2
     start_epoch = 0
     epochs      = 1
-    start_iter  = 10000
-    num_iters   = 20000
+    start_iter  = 20000
+    num_iters   = 30000
     #num_iters    = None # if None
     iter_per_epoch = None # determined later
     iter_per_valid = 10

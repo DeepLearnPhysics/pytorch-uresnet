@@ -32,13 +32,15 @@ import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 
 # Our model definition
-from uresnet import UResNet
+#from uresnet import UResNet
+from caffe_uresnet import UResNet
 
 GPUMODE=True
-RESUME_FROM_CHECKPOINT=True
+RESUME_FROM_CHECKPOINT=False
 RUNPROFILER=False
-PRETRAIN_START_FILE="checkpoint_pretrain/run1/checkpoint.1000th.tar"
-RESUME_CHECKPOINT_FILE="checkpoint_finetune_run1/checkpoint.9500th.tar"
+PRETRAIN_START_FILE="checkpoint_p2_caffe/checkpoint.30000th.tar"
+RESUME_CHECKPOINT_FILE=""
+GPUID=0
 
 # SegData: class to hold batch data
 # we expect LArCV1Dataset to fill this object
@@ -55,25 +57,6 @@ class SegData:
             raise ValueError("SegData instance hasn't been filled yet")
         return self.dim
     
-# Data augmentation/manipulation functions
-def padandcrop(npimg2d,nplabelid,npweightid):
-    imgpad  = np.zeros( (264,264), dtype=np.float32 )
-    imgpad[4:256+4,4:256+4] = npimg2d[:,:]
-    randx = np.random.randint(0,8)
-    randy = np.random.randint(0,8)
-    return imgpad[randx:randx+256,randy:randy+256]
-
-def padandcropandflip(npimg2d):
-    imgpad  = np.zeros( (264,264), dtype=np.float32 )
-    imgpad[4:256+4,4:256+4] = npimg2d[:,:]
-    if np.random.rand()>0.5:
-        imgpad = np.flip( imgpad, 0 )
-    if np.random.rand()>0.5:
-        imgpad = np.flip( imgpad, 1 )
-    randx = np.random.randint(0,8)
-    randy = np.random.randint(0,8)
-    return imgpad[randx:randx+256,randy:randy+256]    
-
 # Data interface
 class LArCV1Dataset:
     def __init__(self, name, cfgfile ):
@@ -115,10 +98,23 @@ class LArCV1Dataset:
         data.np_images[:]  = larcv.as_ndarray(self.io.data()).reshape(    self.dim  )[:]
         data.np_labels[:]  = larcv.as_ndarray(self.io.labels()).reshape(  self.dim3 )[:]
         data.np_weights[:] = larcv.as_ndarray(self.io.weights()).reshape( self.dim3 )[:]
-        data.np_weights *= 10000.0
+        data.np_weights *= 100000.0
         data.np_labels[:] += -1
 
         print "check: unique labels=",np.unique(data.np_labels)
+
+        # adjust adc values, threshold, cap
+        data.np_images *= 0.83 # scaled to be closer to EXTBNB
+        for ibatch in range(self.dim[0]):
+            lx = data.np_labels[ibatch,:]
+            lw = data.np_weights[ibatch,:]
+            x  = data.np_images[ibatch,0,:]
+            lx[x<10.0] = 0
+            lw[lx==3] *= 0.1
+            lx = data.np_labels[ibatch,:] = lx[:]
+            
+        data.np_images[ data.np_images<10.0 ]  = 0.0
+        data.np_images[ data.np_images>500.0 ] = 500.0
         
         # pytorch tensors
         data.images = torch.from_numpy(data.np_images)
@@ -188,19 +184,19 @@ def main():
 
         # reset last layer to output 4 classes
         numclasses = 4 # (bg, shower, track, noise)
-        model.conv13 = nn.Conv2d(model.nkernels, numclasses, 1, stride=1, padding=0, bias=True )
-        n = model.conv13.kernel_size[0] * model.conv13.kernel_size[1] * model.conv13.out_channels
-        model.conv13.weight.data.normal_(0, math.sqrt(2. / n))
+        model.conv11 = nn.Conv2d(model.inplanes, numclasses, kernel_size=7, stride=1, padding=3, bias=True )
+        n = model.conv11.kernel_size[0] * model.conv11.kernel_size[1] * model.conv11.out_channels
+        model.conv11.weight.data.normal_(0, math.sqrt(2. / n))
     else:
         print "Resume training option"
         numclasses = 4 # (bg, shower, track, noise)
-        model.conv13 = nn.Conv2d(model.nkernels, numclasses, 1, stride=1, padding=0, bias=True )
+        model.conv11 = nn.Conv2d(model.inplanes, numclasses, kernel_size=7, stride=1, padding=3, bias=True )
         checkpoint = torch.load( RESUME_CHECKPOINT_FILE )
         best_prec1 = checkpoint["best_prec1"]
         model.load_state_dict(checkpoint["state_dict"])
     
     if GPUMODE:
-        model.cuda()
+        model.cuda(GPUID)
 
     # uncomment to dump model
     #print "Loaded model: ",model
@@ -211,7 +207,7 @@ def main():
 
     # define loss function (criterion) and optimizer
     if GPUMODE:
-        criterion = PixelWiseNLLLoss().cuda()
+        criterion = PixelWiseNLLLoss().cuda(GPUID)
     else:
         criterion = PixelWiseNLLLoss()
 
@@ -258,9 +254,7 @@ def main():
   EnableFilter: false
   RandomAccess: true
   UseThread:    false
-  InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p00.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p01.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p02.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p03.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p04.root"]
-  #InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_p00.root"]
-
+  InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/cocktail/ssnet_retrain_cocktail_p00.root","/media/hdd1/larbys/ssnet_cosmic_retraining/cocktail/ssnet_retrain_cocktail_p01.root","/media/hdd1/larbys/ssnet_cosmic_retraining/cocktail/ssnet_retrain_cocktail_p02.root"]
   ProcessType:  ["SegFiller"]
   ProcessName:  ["SegFiller"]
 
@@ -279,8 +273,8 @@ def main():
       LabelProducer:     "label"
       WeightProducer:    "weight"
       # SegFiller configuration
-      Channels: [2]
-      SegChannel: 2
+      Channels: [0]
+      SegChannel: 0
       EnableMirror: false
       EnableCrop: false
       ClassTypeList: [0,2,1,3]
@@ -295,8 +289,7 @@ def main():
   EnableFilter: false
   RandomAccess: true
   UseThread:    false
-  InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_valid_p00.root","/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_valid_p01.root"]
-  #InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/ssnet_cosmicretrain_cocktail_valid_p00.root"]
+  InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/cocktail/ssnet_retrain_cocktail_p03.root"]
   ProcessType:  ["SegFiller"]
   ProcessName:  ["SegFiller"]
 
@@ -315,8 +308,8 @@ def main():
       LabelProducer:     "label"
       WeightProducer:    "weight"
       # SegFiller configuration
-      Channels: [2]
-      SegChannel: 2
+      Channels: [0]
+      SegChannel: 0
       EnableMirror: false
       EnableCrop: false
       ClassTypeList: [0,2,1,3]
@@ -448,7 +441,7 @@ def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch,
 
     # switch to train mode
     model.train()
-    model.cuda()
+    model.cuda(GPUID)
 
     for i in range(0,nbatches):
         #print "epoch ",epoch," batch ",i," of ",nbatches
@@ -463,9 +456,9 @@ def train(train_loader, batchsize, model, criterion, optimizer, nbatches, epoch,
         # convert to pytorch Variable (with automatic gradient calc.)
         end = time.time()        
         if GPUMODE:
-            images_var = torch.autograd.Variable(data.images.cuda())
-            labels_var = torch.autograd.Variable(data.labels.cuda(),requires_grad=False)
-            weight_var = torch.autograd.Variable(data.weight.cuda(),requires_grad=False)
+            images_var = torch.autograd.Variable(data.images.cuda(GPUID))
+            labels_var = torch.autograd.Variable(data.labels.cuda(GPUID),requires_grad=False)
+            weight_var = torch.autograd.Variable(data.weight.cuda(GPUID),requires_grad=False)
         else:
             images_var = torch.autograd.Variable(data.images)
             labels_var = torch.autograd.Variable(data.labels,requires_grad=False)
@@ -553,9 +546,9 @@ def validate(val_loader, batchsize, model, criterion, nbatches, print_freq, iite
 
         # convert to pytorch Variable (with automatic gradient calc.)
         if GPUMODE:
-            images_var = torch.autograd.Variable(data.images.cuda())
-            labels_var = torch.autograd.Variable(data.labels.cuda(),requires_grad=False)
-            weight_var = torch.autograd.Variable(data.weight.cuda(),requires_grad=False)
+            images_var = torch.autograd.Variable(data.images.cuda(GPUID))
+            labels_var = torch.autograd.Variable(data.labels.cuda(GPUID),requires_grad=False)
+            weight_var = torch.autograd.Variable(data.weight.cuda(GPUID),requires_grad=False)
         else:
             images_var = torch.autograd.Variable(data.images)
             labels_var = torch.autograd.Variable(data.labels,requires_grad=False)
@@ -695,7 +688,7 @@ def accuracy(output, target, imgdata):
 
     # totals
     res.append( 100.0*float(total_corr)/total_pix )
-    res.append( 100.0*float(corr_per_class[1]+corr_per_class[2])/(num_per_class[1]+num_per_class[2]+num_per_class[3]) ) # track/shower acc
+    res.append( 100.0*float(corr_per_class[1]+corr_per_class[2])/(num_per_class[1]+num_per_class[2]) ) # track/shower acc
         
     return res
 
