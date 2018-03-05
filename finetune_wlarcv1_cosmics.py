@@ -29,7 +29,11 @@ import torchvision.models as models
 import torch.nn.functional as F
 
 # tensorboardX
-from tensorboardX import SummaryWriter
+try:
+    from tensorboardX import SummaryWriter
+    SAVE_TO_TENSORBOARDX=True
+except:
+    SAVE_TO_TENSORBOARDX=False
 
 # Our model definition
 #from uresnet import UResNet
@@ -38,7 +42,7 @@ from caffe_uresnet import UResNet
 GPUMODE=True
 RESUME_FROM_CHECKPOINT=False
 RUNPROFILER=False
-PRETRAIN_START_FILE="checkpoint_p2_caffe/checkpoint.30000th.tar"
+PRETRAIN_START_FILE="/cluster/kappa/90-days-archive/wongjiradlab/twongj01/pytorch-uresnet/checkpoint_p2_caffe/checkpoint.30000th.tar"
 RESUME_CHECKPOINT_FILE=""
 GPUID=0
 
@@ -105,16 +109,17 @@ class LArCV1Dataset:
 
         # adjust adc values, threshold, cap
         data.np_images *= 0.83 # scaled to be closer to EXTBNB
+        threshold = np.random.rand()*6.0 + 4.0 # threshold 4-10
         for ibatch in range(self.dim[0]):
             lx = data.np_labels[ibatch,:]
             lw = data.np_weights[ibatch,:]
             x  = data.np_images[ibatch,0,:]
-            lx[x<10.0] = 0
-            lw[lx==3] *= 0.1
+            lx[x<threshold] = 0
+            #lw[lx==3] *= 0.1 # mod noise weights
             lx = data.np_labels[ibatch,:] = lx[:]
             
-        data.np_images[ data.np_images<10.0 ]  = 0.0
-        data.np_images[ data.np_images>500.0 ] = 500.0
+        data.np_images[ data.np_images<threshold ]  = 0.0
+        data.np_images[ data.np_images>(500.0+threshold) ] = 500.0+threshold
         
         # pytorch tensors
         data.images = torch.from_numpy(data.np_images)
@@ -167,7 +172,8 @@ torch.cuda.device( 1 )
 
 # global variables
 best_prec1 = 0.0  # best accuracy, use to decide when to save network weights
-writer = SummaryWriter()
+if SAVE_TO_TENSORBOARDX:
+    writer = SummaryWriter()
 
 def main():
 
@@ -212,13 +218,13 @@ def main():
         criterion = PixelWiseNLLLoss()
 
     # training parameters
-    lr = 1.0e-5
+    lr = 1.0e-4
     momentum = 0.9
     weight_decay = 1.0e-3
 
     # training length
     batchsize_train = 10
-    batchsize_valid = 2
+    batchsize_valid = 8
     start_epoch = 0
     epochs      = 1
     start_iter  = 0
@@ -254,7 +260,9 @@ def main():
   EnableFilter: false
   RandomAccess: true
   UseThread:    false
-  InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/cocktail/ssnet_retrain_cocktail_p00.root","/media/hdd1/larbys/ssnet_cosmic_retraining/cocktail/ssnet_retrain_cocktail_p01.root","/media/hdd1/larbys/ssnet_cosmic_retraining/cocktail/ssnet_retrain_cocktail_p02.root"]
+  #InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/cocktail/ssnet_retrain_cocktail_p00.root","/media/hdd1/larbys/ssnet_cosmic_retraining/cocktail/ssnet_retrain_cocktail_p01.root","/media/hdd1/larbys/ssnet_cosmic_retraining/cocktail/ssnet_retrain_cocktail_p02.root"]
+  #InputFiles:   ["/cluster/kappa/90-days-archive/wongjiradlab/twongj01/ssnet_training_data/ssnet_retrain_cocktail_p00.root","/cluster/kappa/90-days-archive/wongjiradlab/twongj01/ssnet_training_data/ssnet_retrain_cocktail_p01.root","/cluster/kappa/90-days-archive/wongjiradlab/twongj01/ssnet_training_data/ssnet_retrain_cocktail_p02.root"] 
+  InputFiles:   ["/tmp/ssnet_retrain_cocktail_p00.root","/tmp/ssnet_retrain_cocktail_p01.root","/tmp/ssnet_retrain_cocktail_p02.root"] 
   ProcessType:  ["SegFiller"]
   ProcessName:  ["SegFiller"]
 
@@ -289,7 +297,8 @@ def main():
   EnableFilter: false
   RandomAccess: true
   UseThread:    false
-  InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/cocktail/ssnet_retrain_cocktail_p03.root"]
+  #InputFiles:   ["/media/hdd1/larbys/ssnet_cosmic_retraining/cocktail/ssnet_retrain_cocktail_p03.root"]
+  InputFiles:   ["/tmp/ssnet_retrain_cocktail_p03.root"]
   ProcessType:  ["SegFiller"]
   ProcessName:  ["SegFiller"]
 
